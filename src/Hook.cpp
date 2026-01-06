@@ -1,10 +1,20 @@
 #include <MinHook.h>
+#include <cstring> 
 #include <Hooking.Patterns.h>
+#include <string>
+#include <algorithm>
+#include <cctype>
+#include <cstdio> 
+#include <vector> // <--- ADD THIS
+
+
+// Include Windows for IsBadReadPtr
+#include <Windows.h> 
 
 #include "Hook.h"
 #include "Options.h"
 #include "input/MessageHook.h"
-#include "instance/Instances.h"
+#include "instance/Instances.h" // Contains INSTANCE_ReallyRemoveInstance
 #include "game/Game.h"
 #include "render/Font.h"
 #include "game/GameLoop.h"
@@ -31,17 +41,19 @@
 using namespace std::placeholders;
 
 static bool(*s_D3D_Init)();
-
-// Pointer to the cdc::DeviceManager::s_pInstance pointer
 static void* s_deviceManager;
+
+// --- HELPER FOR SAFETY ---
+// Checks if the memory address is readable. Essential when hacking linked lists.
+bool IsValidReadPtr(void* ptr, unsigned int size) {
+	if (!ptr) return false;
+	return !IsBadReadPtr(ptr, size);
+}
 
 static bool D3D_Init()
 {
-	// Initialize the device
 	auto ret = s_D3D_Init();
-
 	Hook::GetInstance().OnDevice();
-
 	return ret;
 }
 
@@ -51,7 +63,12 @@ Hook::Hook() : m_menu(nullptr), m_modules()
 
 void Hook::Initialize()
 {
-	// Register all modules
+    // --- FORCE CONSOLE WINDOW OPEN ---
+    AllocConsole();
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+    // ---------------------------------
+
 	RegisterModules();
 
 #ifndef TR8
@@ -62,23 +79,17 @@ void Hook::Initialize()
 	s_deviceManager = *match.get_first<void*>(2);
 #endif
 
-	// Create the initial hook
 	MH_CreateHook(match.get_first(), D3D_Init, (void**)&s_D3D_Init);
 	MH_EnableHook(MH_ALL_HOOKS);
 }
 
 void Hook::PostInitialize()
 {
-	// Create the menu
 	m_menu = std::make_unique<Menu>();
-
-	// Register the message hook
 	MessageHook::OnMessage(std::bind(&Hook::OnMessage, this, _1, _2, _3, _4));
-
 	Font::OnFlush(std::bind(&Hook::OnFrame, this));
 	GameLoop::OnLoop(std::bind(&Hook::OnLoop, this));
 
-	// Post initialize all modules
 	for (auto& [hash, mod] : m_modules)
 	{
 		mod->OnPostInitialize();
@@ -88,7 +99,6 @@ void Hook::PostInitialize()
 void Hook::OnMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
 	m_menu->OnMessage(hWnd, msg, wParam, lParam);
-
 	for (auto& [hash, mod] : m_modules)
 	{
 		mod->OnInput(hWnd, msg, wParam, lParam);
@@ -107,29 +117,77 @@ void Hook::OnFrame()
 #endif
 }
 
+
 void Hook::OnLoop()
 {
-	for (auto& [hash, mod] : m_modules)
-	{
+	// 1. Run existing module loops
+	for (auto& [hash, mod] : m_modules) {
 		mod->OnLoop();
 	}
-}
 
+	// --- ENTITY REMOVAL LOGIC ---
+	static int s_frameCounter = 0;
+	s_frameCounter++;
+	if (s_frameCounter < 60) return;
+	s_frameCounter = 0;
+
+	// 2. Create a "Death Row" list to store enemies we want to remove
+	// We need this because we cannot delete them INSIDE the iterator loop
+	// or the game will crash trying to find the 'next' item.
+	std::vector<Instance*> enemiesToDelete;
+
+	// 3. Scan the list and fill the Death Row
+	Instances::Iterate([&](Instance* instance)
+		{
+			// Safety checks
+			if (!instance || !instance->object) return;
+
+			char* name = instance->object->name;
+
+			if (name)
+			{
+				// Create lowercase copy
+				char nameLower[64];
+				size_t i = 0;
+				while (name[i] && i < 63) {
+					nameLower[i] = tolower(name[i]);
+					i++;
+				}
+				nameLower[i] = '\0';
+
+				// Check for sharks/spiders
+				if (strstr(nameLower, "shark") ||
+					strstr(nameLower, "spider") ||
+					strstr(nameLower, "tarantula"))
+				{
+					// DO NOT DELETE HERE. Just add to the list.
+					enemiesToDelete.push_back(instance);
+				}
+			}
+		});
+
+	// 4. NOW it is safe to delete them
+	// The iterator is finished, so we aren't breaking the linked list loop.
+	for (Instance* enemy : enemiesToDelete)
+	{
+		// Optional: Print to console
+		if (enemy && enemy->object) {
+			printf("!!! Deleting Enemy: %s\n", enemy->object->name);
+		}
+
+		INSTANCE_ReallyRemoveInstance(enemy, 0, false);
+	}
+}
 void Hook::OnDevice()
 {
-	// Assign the DeviceManager instance
 	cdc::PCDeviceManager::s_pInstance = *(cdc::PCDeviceManager**)s_deviceManager;
-
-	// Initialize the hook
 	PostInitialize();
 }
 
 void Hook::RegisterModules()
 {
-	// Register these first
 	RegisterModule<Log>();
 	RegisterModule<Options>();
-
 	RegisterModule<MainMenu>();
 	RegisterModule<InstanceModule>();
 	RegisterModule<Skew>();
