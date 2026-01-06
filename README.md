@@ -9,6 +9,15 @@ Mainly tested on sharks because they are in the first level
 failed attempt lol) but I know a lot of people have a fear
 of them too. Can theoretically remove any enemy using their name.
 
+## IMPORTANT
+
+**Ultimate ASI Loader is NOT included.**
+
+You **must** install
+[`binkw32.dll`](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/Win32-latest/binkw32-Win32.zip)
+for this mod to work.
+
+
 Names searched against **(trigger warning)**
 <details>
 <summary>Trigger warning</summary>
