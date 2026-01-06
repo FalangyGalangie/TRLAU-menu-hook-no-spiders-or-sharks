@@ -11,11 +11,16 @@ of them too. Can theoretically remove any enemy using their name.
 
 Names searched against **(trigger warning)**
 <details>
-<summary>Spoiler warning</summary>
-_shark
+<summary>Trigger warning</summary>
+
+shark
+
 spider
-tarantula_
+
+tarantula
+
 </details>
+
 
 This was entirely vibe-coded using Gemini because
 I wanted to finally play Underworld lol.
